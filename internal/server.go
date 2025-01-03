@@ -35,44 +35,6 @@ func NewServer() *Server {
 	}
 }
 
-func (srv *Server) handleConnection(conn net.Conn) {
-	srv.logger.Println("New connection:", conn.RemoteAddr())
-
-	defer func() {
-		srv.logger.Println("Closing connection:", conn.RemoteAddr())
-		conn.Close()
-	}()
-
-	for {
-		buf := make([]byte, 1024)
-		n, err := conn.Read(buf)
-		if err != nil {
-			srv.logger.Println("Error reading data:", err)
-			return
-		}
-		fmt.Println("Received data:", string(buf[:n]))
-		parsedRequest, err := srv.ParseRequest(buf[:n])
-		if err != nil {
-			srv.logger.Println("Error parsing request:", err)
-
-			if _, err := conn.Write([]byte(err.Error())); err != nil {
-				srv.logger.Println("Error writing response:", err)
-				return
-			}
-
-			continue
-		}
-
-		fmt.Println("Parsed request:", parsedRequest)
-
-		if _, err := conn.Write([]byte(parsedRequest.Stringify())); err != nil {
-			srv.logger.Println("Error writing response:", err)
-		}
-
-	}
-
-}
-
 func (srv *Server) Start() {
 	srv.logger.Println("Server started")
 
@@ -89,6 +51,50 @@ func (srv *Server) Start() {
 
 func (srv *Server) Stop() {
 	(*srv.s).Close()
+}
+
+func (srv *Server) handleConnection(conn net.Conn) {
+	srv.logger.Println("New connection:", conn.RemoteAddr())
+
+	defer func() {
+		conn.Close()
+	}()
+
+	for {
+		buf := make([]byte, 1024)
+		n, err := conn.Read(buf)
+		if err != nil {
+			if err.Error() == "EOF" {
+				srv.logger.Println("Connection closed by client:", conn.RemoteAddr())
+				break
+			}
+
+			srv.logger.Println("Error reading data:", err)
+			break
+		}
+
+		fmt.Println("Received data:", string(buf[:n]))
+
+		parsedRequest, err := srv.ParseRequest(buf[:n])
+		if err != nil {
+			srv.logger.Println("Error parsing request:", err)
+
+			if _, err := conn.Write([]byte(err.Error())); err != nil {
+				srv.logger.Println("Error writing response:", err)
+				break
+			}
+
+			continue
+		}
+
+		fmt.Println("Parsed request:", parsedRequest)
+
+		if _, err := conn.Write([]byte(parsedRequest.Stringify())); err != nil {
+			srv.logger.Println("Error writing response:", err)
+		}
+
+	}
+
 }
 
 func (srv *Server) ParseRequest(rawData []byte) (ParsedRequest, error) {
