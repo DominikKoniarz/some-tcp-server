@@ -1,52 +1,59 @@
-func main() {
-	server, err := net.Listen("tcp", ":8080")
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
+// package main
 
-	defer server.Close()
+// import (
+// 	"fmt"
+// 	"net"
+// )
 
-	fmt.Println("Server is running on port 8080")
+// func main() {
+// 	server, err := net.Listen("tcp", ":8080")
+// 	if err != nil {
+// 		fmt.Println(err)
+// 		return
+// 	}
 
-	for {
-		client, err := server.Accept()
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
+// 	defer server.Close()
 
-		fmt.Println("Client connected")
+// 	fmt.Println("Server is running on port 8080")
 
-		go handleClient(&client)
-	}
-}
+// 	for {
+// 		client, err := server.Accept()
+// 		if err != nil {
+// 			fmt.Println(err)
+// 			return
+// 		}
 
-func handleClient(clientPtr *net.Conn) {
-	client := *clientPtr
+// 		fmt.Println("Client connected")
 
-	for {
-		buff := make([]byte, 1024)
-		_, err := client.Read(buff)
+// 		go handleClient(&client)
+// 	}
+// }
 
-		if err != nil {
-			if err.Error() == "EOF" {
-				client.Close()
-				fmt.Println("Client disconnected")
-				break
-			}
+// func handleClient(clientPtr *net.Conn) {
+// 	client := *clientPtr
 
-			fmt.Println(err)
-			return
-		}
+// 	for {
+// 		buff := make([]byte, 1024)
+// 		_, err := client.Read(buff)
 
-		fmt.Println(string(buff))
+// 		if err != nil {
+// 			if err.Error() == "EOF" {
+// 				client.Close()
+// 				fmt.Println("Client disconnected")
+// 				break
+// 			}
 
-		serverResponse := append([]byte("Message received: "), buff...)
-		_, err = client.Write(serverResponse)
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-	}
-}
+// 			fmt.Println(err)
+// 			return
+// 		}
+
+// 		fmt.Println(string(buff))
+
+// 		serverResponse := append([]byte("Message received: "), buff...)
+// 		_, err = client.Write(serverResponse)
+// 		if err != nil {
+// 			fmt.Println(err)
+// 			return
+// 		}
+// 	}
+// }
