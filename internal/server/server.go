@@ -1,86 +1,129 @@
 package server
 
 import (
-	"errors"
 	"fmt"
 	"log"
 	"net"
+	"sync"
+
+	"github.com/DominikKoniarz/some-tcp-server/internal/message"
+	"github.com/DominikKoniarz/some-tcp-server/internal/request"
 )
 
+type Connection struct {
+	ID              string
+	IsAuthenticated bool
+	C               *net.Conn
+}
+
 type Server struct {
-	s      *net.Listener
-	logger *log.Logger
+	s           *net.Listener
+	logger      *log.Logger
+	connections map[string]*Connection
+	nextConnID  int
+	mu          sync.Mutex
 }
 
-type ParsedRequest struct {
-	// length          int
-	ProtocolVersion string
-	MessageType     string
-	Data            string
+func (s *Server) AddConnection(conn net.Conn) *Connection {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	connID := fmt.Sprintf("%d", s.nextConnID)
+	s.nextConnID++
+
+	connection := &Connection{
+		ID:              connID,
+		IsAuthenticated: false,
+		C:               &conn,
+	}
+
+	s.connections[connID] = connection
+
+	return connection
 }
 
-func (pr ParsedRequest) Stringify() string {
-	return fmt.Sprintf("Protocol version: %s, Message type: %s, Data: %s", pr.ProtocolVersion, pr.MessageType, pr.Data)
+func (s *Server) GetConnection(connID string) (*Connection, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	conn, ok := s.connections[connID]
+	return conn, ok
+}
+
+func (s *Server) RemoveConnection(connID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.connections, connID)
 }
 
 func NewServer() *Server {
-	server, err := net.Listen("tcp", ":8080")
+	server, err := net.Listen("tcp", ":8000")
 	if err != nil {
 		log.Fatal("Error starting server:", err)
 	}
 
-	return &Server{
-		s:      &server,
-		logger: log.New(log.Writer(), "Server: ", log.LstdFlags),
+	s := &Server{
+		s:           &server,
+		logger:      log.New(log.Writer(), "Server: ", log.LstdFlags),
+		connections: make(map[string]*Connection),
+		nextConnID:  0,
+		mu:          sync.Mutex{},
 	}
+
+	return s
 }
 
-func (srv *Server) Start() {
-	srv.logger.Println("Server started")
+func (s *Server) Start() {
+	s.logger.Println("Server started")
 
 	for {
-		conn, err := (*srv.s).Accept()
+		conn, err := (*s.s).Accept()
 		if err != nil {
-			srv.logger.Println("Error accepting connection:", err)
+			s.logger.Println("Error accepting connection:", err)
 			continue
 		}
 
-		go srv.handleConnection(conn)
+		c := s.AddConnection(conn)
+
+		go s.handleConnection(c)
 	}
 }
 
-func (srv *Server) Stop() {
-	(*srv.s).Close()
+func (s *Server) Stop() {
+	s.logger.Println("Stopping server")
+	(*s.s).Close()
 }
 
-func (srv *Server) handleConnection(conn net.Conn) {
-	srv.logger.Println("New connection:", conn.RemoteAddr())
+func (s *Server) handleConnection(conn *Connection) {
+	s.logger.Println("Connection established with ID:", conn.ID)
+	s.logger.Println("Client address:", (*conn.C).RemoteAddr())
 
 	defer func() {
-		conn.Close()
+		(*conn.C).Close()
+		s.logger.Println("Connection closed with ID:", conn.ID)
+		s.RemoveConnection(conn.ID)
 	}()
 
 	for {
 		buf := make([]byte, 1024)
-		n, err := conn.Read(buf)
+		n, err := (*conn.C).Read(buf)
 		if err != nil {
 			if err.Error() == "EOF" {
-				srv.logger.Println("Connection closed by client:", conn.RemoteAddr())
+				s.logger.Println("Connection closed by client:", (*conn.C).RemoteAddr())
 				break
 			}
 
-			srv.logger.Println("Error reading data:", err)
+			s.logger.Println("Error reading data:", err)
 			break
 		}
 
 		fmt.Println("Received data:", string(buf[:n]))
 
-		parsedRequest, err := srv.ParseRequest(buf[:n])
+		parsedRequest, err := request.ParseRequest(buf[:n])
 		if err != nil {
-			srv.logger.Println("Error parsing request:", err)
+			s.logger.Println("Error parsing request:", err)
 
-			if _, err := conn.Write([]byte(err.Error())); err != nil {
-				srv.logger.Println("Error writing response:", err)
+			if _, err := (*conn.C).Write([]byte(err.Error())); err != nil {
+				s.logger.Println("Error writing response:", err)
 				break
 			}
 
@@ -89,45 +132,48 @@ func (srv *Server) handleConnection(conn net.Conn) {
 
 		fmt.Println("Parsed request:", parsedRequest)
 
-		if _, err := conn.Write([]byte(parsedRequest.Stringify())); err != nil {
-			srv.logger.Println("Error writing response:", err)
+		if _, err := (*conn.C).Write(parsedRequest.ToBytes()); err != nil {
+			s.logger.Println("Error writing response:", err)
 		}
 
+		if !conn.IsAuthenticated {
+			if parsedRequest.MessageType != request.AUTH_MESSAGE_TYPE {
+				s.logger.Println("Client not authenticated")
+				if err := (*conn.C).Close(); err != nil {
+					s.logger.Println("Error closing connection:", err)
+				}
+				break
+			}
+
+			authMessage, err := message.ParseAuthMessage(parsedRequest.Data)
+			if err != nil {
+				s.logger.Println("Error parsing auth message:", err)
+				if _, err := (*conn.C).Write([]byte(err.Error())); err != nil {
+					s.logger.Println("Error writing response:", err)
+				}
+				continue
+			}
+
+			if authMessage.Username == "admin" && authMessage.Password == "admin" {
+				conn.IsAuthenticated = true
+				s.logger.Println("Client authenticated")
+				if _, err := (*conn.C).Write([]byte("Authenticated")); err != nil {
+					s.logger.Println("Error writing response:", err)
+				}
+			} else {
+				s.logger.Println("Invalid credentials")
+				if _, err := (*conn.C).Write([]byte("Invalid credentials")); err != nil {
+					s.logger.Println("Error writing response:", err)
+				}
+				// close connection if credentials are invalid
+				if err := (*conn.C).Close(); err != nil {
+					s.logger.Println("Error closing connection:", err)
+
+				}
+
+				s.logger.Println("Invalid authentication attempt for user:", authMessage.Username)
+			}
+
+		}
 	}
-
-}
-
-func (srv *Server) ParseRequest(rawData []byte) (ParsedRequest, error) {
-	if len(rawData) < 5 {
-		return ParsedRequest{}, errors.New("invalid data format")
-	}
-
-	// 4 bytes for length of whole command
-	// length := rawData[:4]
-	// 4 bytes for protocol version
-	protocolVersion := rawData[:4]
-	// 4 bytes for message type
-	messageType := rawData[4:5]
-	// rest of the bytes for data
-	data := rawData[5:]
-
-	if string(protocolVersion) != "0001" {
-		return ParsedRequest{}, errors.New("invalid protocol version")
-	}
-
-	// intLength, err := strconv.Atoi(string(length))
-	// if err != nil {
-	// 	log.Println("Error converting length to integer:", err)
-	// 	return ParsedRequest{}, errors.New("error converting length to integer")
-	// }
-
-	stringMessageType := string(messageType)
-
-	return ParsedRequest{
-		// length:          intLength,
-		ProtocolVersion: string(protocolVersion),
-		MessageType:     stringMessageType,
-		Data:            string(data),
-	}, nil
-
 }

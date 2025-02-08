@@ -10,7 +10,7 @@ import (
 type ClientEnvs struct {
 	Host     string
 	Port     string
-	User     string
+	Username string
 	Password string
 	Database string
 }
@@ -59,7 +59,7 @@ func LoadClientEnvs() ClientEnvs {
 	return ClientEnvs{
 		Host:     host,
 		Port:     port,
-		User:     user,
+		Username: user,
 		Password: password,
 		Database: database,
 	}

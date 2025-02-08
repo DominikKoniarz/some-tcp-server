@@ -1,37 +1,71 @@
 package client
 
 import (
+	"bufio"
 	"fmt"
 	"net"
+	"os"
+	"time"
 
 	"github.com/DominikKoniarz/some-tcp-server/internal/env"
+	"github.com/DominikKoniarz/some-tcp-server/internal/request"
 )
 
 type Client struct {
-	c *net.Listener
+	C               *net.Listener
+	IsAuthenticated bool
 }
 
 func NewClient() *Client {
-	return &Client{}
+	return &Client{IsAuthenticated: false}
 }
 
-func (c *Client) handleConnection(conn net.Conn) {
+// send credentials
+func (c *Client) sendCredentials(conn net.Conn, env env.ClientEnvs) error {
+	request, err := request.BuildRequest(request.AUTH_MESSAGE_TYPE, env.Username+":"+env.Password)
+	if err != nil {
+		fmt.Println("Error building request:", err)
+		return err
+	}
+
+	_, err = conn.Write(request.ToBytes())
+	if err != nil {
+		fmt.Println("Error sending credentials:", err)
+		return err
+	}
+
+	return nil
+}
+
+func (c *Client) handleConnection(conn net.Conn, env env.ClientEnvs) {
 	defer conn.Close()
+
+	scanner := bufio.NewScanner(os.Stdin)
+
+	err := c.sendCredentials(conn, env)
+	if err != nil {
+		fmt.Println("Error sending credentials:", err)
+		return
+	}
 
 	// Read data from connection
 	for {
-		buffer := make([]byte, 1024)
+		fmt.Print("Enter text: ")
+		scanner.Scan()
+		text := scanner.Text()
 
-		_, err := conn.Read(buffer)
+		request, err := request.BuildRequest("1", text)
 		if err != nil {
-			if err.Error() == "EOF" {
-				fmt.Println("Connection closed by client:", conn.RemoteAddr())
-				break
-			}
-
-			fmt.Println("Error reading data:", err)
-			break
+			fmt.Println("Error building request:", err)
+			return
 		}
+
+		_, err = conn.Write(request.ToBytes())
+		if err != nil {
+			fmt.Println("Error sending request:", err)
+			return
+		}
+
 	}
 
 }
@@ -46,13 +80,23 @@ func (c *Client) Connect() error {
 		return err
 	}
 
-	conn, err := net.DialTCP("tcp", nil, addr)
+	var conn *net.TCPConn
+	for i := 0; i < 3; i++ {
+		conn, err = net.DialTCP("tcp", nil, addr)
+		if err == nil {
+			break
+		}
+		fmt.Println("Error connecting to server, retrying...", err)
+		time.Sleep(2 * time.Second)
+	}
 	if err != nil {
-		fmt.Println("Error connecting to server:", err)
+		fmt.Println("Failed to connect to server after 3 attempts:", err)
 		return err
 	}
 
-	c.handleConnection(conn)
+	fmt.Println("Connected to server:", conn.RemoteAddr())
+
+	c.handleConnection(conn, envs)
 
 	return nil
 }
