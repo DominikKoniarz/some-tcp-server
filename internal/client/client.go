@@ -38,36 +38,77 @@ func (c *Client) sendCredentials(conn net.Conn, env env.ClientEnvs) error {
 }
 
 func (c *Client) handleConnection(conn net.Conn, env env.ClientEnvs) {
-	defer conn.Close()
+	defer func() {
+		fmt.Println("Closing connection...")
+		conn.Close()
+	}()
 
 	scanner := bufio.NewScanner(os.Stdin)
 
-	err := c.sendCredentials(conn, env)
-	if err != nil {
-		fmt.Println("Error sending credentials:", err)
-		return
-	}
+	var isAuthenticated bool
 
-	// Read data from connection
+	buf := make([]byte, 1024)
+
 	for {
-		fmt.Print("Enter text: ")
-		scanner.Scan()
-		text := scanner.Text()
+		if !isAuthenticated {
+			err := c.sendCredentials(conn, env)
+			if err != nil {
+				fmt.Println("Error sending credentials:", err)
+				return
+			}
+		} else {
+			fmt.Print("Enter text: ")
+			scanner.Scan()
+			text := scanner.Text()
 
-		request, err := request.BuildRequest("1", text)
+			if text == "" {
+				fmt.Println("No input received, please enter some text.")
+				continue
+			}
+
+			if text == "exit" {
+				fmt.Println("Exiting...")
+				break
+			}
+
+			request, err := request.BuildRequest("1", text)
+			if err != nil {
+				fmt.Println("Error building request:", err)
+				return
+			}
+
+			_, err = conn.Write(request.ToBytes())
+			if err != nil {
+				fmt.Println("Error sending request:", err)
+				return
+			}
+		}
+
+		// usefull if we want to await particular response
+		// wait for response for 5 seconds max
+		// err := conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		// if err != nil {
+		// 	fmt.Println("Error setting read deadline:", err)
+		// 	return
+		// }
+
+		n, err := conn.Read(buf)
 		if err != nil {
-			fmt.Println("Error building request:", err)
+			fmt.Println("Error reading response:", err)
+
+			if err.Error() == "EOF" {
+				fmt.Println("Connection closed by server")
+				break
+			}
 			return
 		}
 
-		_, err = conn.Write(request.ToBytes())
-		if err != nil {
-			fmt.Println("Error sending request:", err)
-			return
-		}
+		fmt.Println("Received response:", string(buf[:n]))
 
+		if string(buf[:n]) == "Authenticated" {
+			isAuthenticated = true
+		}
 	}
-
 }
 
 func (c *Client) Connect() error {

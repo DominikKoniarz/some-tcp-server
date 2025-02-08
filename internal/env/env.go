@@ -33,9 +33,9 @@ func LoadClientEnvs() ClientEnvs {
 		errors = append(errors, "DB_PORT is not set")
 	}
 
-	user, ok := os.LookupEnv("DB_USER")
+	username, ok := os.LookupEnv("DB_USERNAME")
 	if !ok {
-		errors = append(errors, "DB_USER is not set")
+		errors = append(errors, "DB_USERNAME is not set")
 	}
 
 	password, ok := os.LookupEnv("DB_PASSWORD")
@@ -59,7 +59,7 @@ func LoadClientEnvs() ClientEnvs {
 	return ClientEnvs{
 		Host:     host,
 		Port:     port,
-		Username: user,
+		Username: username,
 		Password: password,
 		Database: database,
 	}

@@ -103,8 +103,9 @@ func (s *Server) handleConnection(conn *Connection) {
 		s.RemoveConnection(conn.ID)
 	}()
 
+	buf := make([]byte, 1024)
+
 	for {
-		buf := make([]byte, 1024)
 		n, err := (*conn.C).Read(buf)
 		if err != nil {
 			if err.Error() == "EOF" {
@@ -132,9 +133,9 @@ func (s *Server) handleConnection(conn *Connection) {
 
 		fmt.Println("Parsed request:", parsedRequest)
 
-		if _, err := (*conn.C).Write(parsedRequest.ToBytes()); err != nil {
-			s.logger.Println("Error writing response:", err)
-		}
+		// if _, err := (*conn.C).Write(parsedRequest.ToBytes()); err != nil {
+		// 	s.logger.Println("Error writing response:", err)
+		// }
 
 		if !conn.IsAuthenticated {
 			if parsedRequest.MessageType != request.AUTH_MESSAGE_TYPE {
@@ -154,7 +155,7 @@ func (s *Server) handleConnection(conn *Connection) {
 				continue
 			}
 
-			if authMessage.Username == "admin" && authMessage.Password == "admin" {
+			if authMessage.Username == "root" && authMessage.Password == "root" {
 				conn.IsAuthenticated = true
 				s.logger.Println("Client authenticated")
 				if _, err := (*conn.C).Write([]byte("Authenticated")); err != nil {
@@ -165,15 +166,16 @@ func (s *Server) handleConnection(conn *Connection) {
 				if _, err := (*conn.C).Write([]byte("Invalid credentials")); err != nil {
 					s.logger.Println("Error writing response:", err)
 				}
-				// close connection if credentials are invalid
-				if err := (*conn.C).Close(); err != nil {
-					s.logger.Println("Error closing connection:", err)
-
-				}
 
 				s.logger.Println("Invalid authentication attempt for user:", authMessage.Username)
-			}
 
+				break
+			}
+		} else {
+			// write request back to client
+			if _, err := (*conn.C).Write(parsedRequest.ToBytes()); err != nil {
+				s.logger.Println("Error writing response:", err)
+			}
 		}
 	}
 }
