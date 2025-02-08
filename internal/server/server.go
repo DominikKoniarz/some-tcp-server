@@ -14,13 +14,13 @@ type Server struct {
 
 type ParsedRequest struct {
 	// length          int
-	protocolVersion string
-	messageType     string
-	data            string
+	ProtocolVersion string
+	MessageType     string
+	Data            string
 }
 
 func (pr ParsedRequest) Stringify() string {
-	return fmt.Sprintf("Protocol version: %s, Message type: %s, Data: %s", pr.protocolVersion, pr.messageType, pr.data)
+	return fmt.Sprintf("Protocol version: %s, Message type: %s, Data: %s", pr.ProtocolVersion, pr.MessageType, pr.Data)
 }
 
 func NewServer() *Server {
@@ -125,9 +125,9 @@ func (srv *Server) ParseRequest(rawData []byte) (ParsedRequest, error) {
 
 	return ParsedRequest{
 		// length:          intLength,
-		protocolVersion: string(protocolVersion),
-		messageType:     stringMessageType,
-		data:            string(data),
+		ProtocolVersion: string(protocolVersion),
+		MessageType:     stringMessageType,
+		Data:            string(data),
 	}, nil
 
 }

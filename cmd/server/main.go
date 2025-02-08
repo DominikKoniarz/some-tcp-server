@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	server "github.com/DominikKoniarz/some-tcp-server/internal"
+	server "github.com/DominikKoniarz/some-tcp-server/internal/server"
 )
 
 func main() {

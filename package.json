@@ -1,0 +1,16 @@
+{
+	"name": "some-tcp-server",
+	"version": "1.0.0",
+	"description": "",
+	"main": "go.mod",
+	"scripts": {
+		"server:watch": "air -c .air-server.toml",
+		"server:build": "go build -o ./cmd/server/main ./cmd/server",
+		"client": "go run ./cmd/client/main.go",
+		"client:watch": "air -c .air-client.toml",
+		"client:build": "go build -o ./cmd/client/main ./cmd/client"
+	},
+	"keywords": [],
+	"author": "",
+	"license": "ISC"
+}
