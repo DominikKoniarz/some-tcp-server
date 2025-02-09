@@ -34,6 +34,17 @@ func (c *Client) sendCredentials(conn net.Conn, env env.ClientEnvs) error {
 		return err
 	}
 
+	buf := make([]byte, 1024)
+	n, err := conn.Read(buf)
+	if err != nil {
+		fmt.Println("Error reading response:", err)
+		return err
+	}
+
+	if string(buf[:n]) != "Authenticated" {
+		return fmt.Errorf("authentication failed")
+	}
+
 	return nil
 }
 
@@ -45,43 +56,42 @@ func (c *Client) handleConnection(conn net.Conn, env env.ClientEnvs) {
 
 	scanner := bufio.NewScanner(os.Stdin)
 
-	var isAuthenticated bool
+	err := c.sendCredentials(conn, env)
+	if err != nil {
+		fmt.Println("Error sending credentials:", err)
+		return
+	} else {
+		fmt.Println("Authenticated")
+	}
 
 	buf := make([]byte, 1024)
 
 	for {
-		if !isAuthenticated {
-			err := c.sendCredentials(conn, env)
-			if err != nil {
-				fmt.Println("Error sending credentials:", err)
-				return
-			}
-		} else {
-			fmt.Print("Enter text: ")
-			scanner.Scan()
-			text := scanner.Text()
 
-			if text == "" {
-				fmt.Println("No input received, please enter some text.")
-				continue
-			}
+		fmt.Print("Enter text: ")
+		scanner.Scan()
+		text := scanner.Text()
 
-			if text == "exit" {
-				fmt.Println("Exiting...")
-				break
-			}
+		if text == "" {
+			fmt.Println("No input received, please enter some text.")
+			continue
+		}
 
-			request, err := request.BuildRequest("1", text)
-			if err != nil {
-				fmt.Println("Error building request:", err)
-				return
-			}
+		if text == "exit" {
+			fmt.Println("Exiting...")
+			break
+		}
 
-			_, err = conn.Write(request.ToBytes())
-			if err != nil {
-				fmt.Println("Error sending request:", err)
-				return
-			}
+		request, err := request.BuildRequest("1", text)
+		if err != nil {
+			fmt.Println("Error building request:", err)
+			return
+		}
+
+		_, err = conn.Write(request.ToBytes())
+		if err != nil {
+			fmt.Println("Error sending request:", err)
+			return
 		}
 
 		// usefull if we want to await particular response
@@ -105,9 +115,6 @@ func (c *Client) handleConnection(conn net.Conn, env env.ClientEnvs) {
 
 		fmt.Println("Received response:", string(buf[:n]))
 
-		if string(buf[:n]) == "Authenticated" {
-			isAuthenticated = true
-		}
 	}
 }
 
