@@ -6,53 +6,48 @@ import (
 	"net"
 	"sync"
 
-	"github.com/DominikKoniarz/some-tcp-server/internal/message"
+	"github.com/DominikKoniarz/some-tcp-server/internal/auth"
+	"github.com/DominikKoniarz/some-tcp-server/internal/connection"
 	"github.com/DominikKoniarz/some-tcp-server/internal/request"
 )
 
-type Connection struct {
-	ID              string
-	IsAuthenticated bool
-	C               *net.Conn
-}
-
 type Server struct {
-	s           *net.Listener
-	logger      *log.Logger
-	connections map[string]*Connection
-	nextConnID  int
-	mu          sync.Mutex
+	S           *net.Listener
+	Logger      *log.Logger
+	Connections map[string]*connection.Connection
+	NextConnID  int
+	Mu          sync.Mutex
 }
 
-func (s *Server) AddConnection(conn net.Conn) *Connection {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (s *Server) AddConnection(conn net.Conn) *connection.Connection {
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
 
-	connID := fmt.Sprintf("%d", s.nextConnID)
-	s.nextConnID++
+	connID := fmt.Sprintf("%d", s.NextConnID)
+	s.NextConnID++
 
-	connection := &Connection{
+	connection := &connection.Connection{
 		ID:              connID,
 		IsAuthenticated: false,
 		C:               &conn,
 	}
 
-	s.connections[connID] = connection
+	s.Connections[connID] = connection
 
 	return connection
 }
 
-func (s *Server) GetConnection(connID string) (*Connection, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	conn, ok := s.connections[connID]
+func (s *Server) GetConnection(connID string) (*connection.Connection, bool) {
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
+	conn, ok := s.Connections[connID]
 	return conn, ok
 }
 
 func (s *Server) RemoveConnection(connID string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	delete(s.connections, connID)
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
+	delete(s.Connections, connID)
 }
 
 func NewServer() *Server {
@@ -62,23 +57,23 @@ func NewServer() *Server {
 	}
 
 	s := &Server{
-		s:           &server,
-		logger:      log.New(log.Writer(), "Server: ", log.LstdFlags),
-		connections: make(map[string]*Connection),
-		nextConnID:  0,
-		mu:          sync.Mutex{},
+		S:           &server,
+		Logger:      log.New(log.Writer(), "Server: ", log.LstdFlags),
+		Connections: make(map[string]*connection.Connection),
+		NextConnID:  0,
+		Mu:          sync.Mutex{},
 	}
 
 	return s
 }
 
 func (s *Server) Start() {
-	s.logger.Println("Server started")
+	s.Logger.Println("Server started")
 
 	for {
-		conn, err := (*s.s).Accept()
+		conn, err := (*s.S).Accept()
 		if err != nil {
-			s.logger.Println("Error accepting connection:", err)
+			s.Logger.Println("Error accepting connection:", err)
 			continue
 		}
 
@@ -89,17 +84,17 @@ func (s *Server) Start() {
 }
 
 func (s *Server) Stop() {
-	s.logger.Println("Stopping server")
-	(*s.s).Close()
+	s.Logger.Println("Stopping server")
+	(*s.S).Close()
 }
 
-func (s *Server) handleConnection(conn *Connection) {
-	s.logger.Println("Connection established with ID:", conn.ID)
-	s.logger.Println("Client address:", (*conn.C).RemoteAddr())
+func (s *Server) handleConnection(conn *connection.Connection) {
+	s.Logger.Println("Connection established with ID:", conn.ID)
+	s.Logger.Println("Client address:", (*conn.C).RemoteAddr())
 
 	defer func() {
 		(*conn.C).Close()
-		s.logger.Println("Connection closed with ID:", conn.ID)
+		s.Logger.Println("Connection closed with ID:", conn.ID)
 		s.RemoveConnection(conn.ID)
 	}()
 
@@ -109,11 +104,11 @@ func (s *Server) handleConnection(conn *Connection) {
 		n, err := (*conn.C).Read(buf)
 		if err != nil {
 			if err.Error() == "EOF" {
-				s.logger.Println("Connection closed by client:", (*conn.C).RemoteAddr())
+				s.Logger.Println("Connection closed by client:", (*conn.C).RemoteAddr())
 				break
 			}
 
-			s.logger.Println("Error reading data:", err)
+			s.Logger.Println("Error reading data:", err)
 			break
 		}
 
@@ -121,10 +116,10 @@ func (s *Server) handleConnection(conn *Connection) {
 
 		parsedRequest, err := request.ParseRequest(buf[:n])
 		if err != nil {
-			s.logger.Println("Error parsing request:", err)
+			s.Logger.Println("Error parsing request:", err)
 
 			if _, err := (*conn.C).Write([]byte(err.Error())); err != nil {
-				s.logger.Println("Error writing response:", err)
+				s.Logger.Println("Error writing response:", err)
 				break
 			}
 
@@ -133,48 +128,17 @@ func (s *Server) handleConnection(conn *Connection) {
 
 		fmt.Println("Parsed request:", parsedRequest)
 
-		// if _, err := (*conn.C).Write(parsedRequest.ToBytes()); err != nil {
-		// 	s.logger.Println("Error writing response:", err)
-		// }
-
 		if !conn.IsAuthenticated {
-			if parsedRequest.MessageType != request.AUTH_MESSAGE_TYPE {
-				s.logger.Println("Client not authenticated")
-				if err := (*conn.C).Close(); err != nil {
-					s.logger.Println("Error closing connection:", err)
-				}
-				break
-			}
-
-			authMessage, err := message.ParseAuthMessage(parsedRequest.Data)
+			err := auth.HandleAuth(conn, &parsedRequest)
 			if err != nil {
-				s.logger.Println("Error parsing auth message:", err)
-				if _, err := (*conn.C).Write([]byte(err.Error())); err != nil {
-					s.logger.Println("Error writing response:", err)
-				}
-				continue
-			}
-
-			if authMessage.Username == "root" && authMessage.Password == "root" {
-				conn.IsAuthenticated = true
-				s.logger.Println("Client authenticated")
-				if _, err := (*conn.C).Write([]byte("Authenticated")); err != nil {
-					s.logger.Println("Error writing response:", err)
-				}
-			} else {
-				s.logger.Println("Invalid credentials")
-				if _, err := (*conn.C).Write([]byte("Invalid credentials")); err != nil {
-					s.logger.Println("Error writing response:", err)
-				}
-
-				s.logger.Println("Invalid authentication attempt for user:", authMessage.Username)
-
+				s.Logger.Println("Authentication error:", err)
 				break
 			}
 		} else {
 			// write request back to client
 			if _, err := (*conn.C).Write(parsedRequest.ToBytes()); err != nil {
-				s.logger.Println("Error writing response:", err)
+				s.Logger.Println("Error writing response:", err)
+				break
 			}
 		}
 	}
