@@ -12,7 +12,7 @@ const AUTH_MESSAGE_TYPE = "A"
 type Request struct {
 	ProtocolVersion string
 	MessageType     string // A - auth
-	Data            string
+	Data            string // change to byte?
 }
 
 func BuildRequest(messageType, data string) (Request, error) {

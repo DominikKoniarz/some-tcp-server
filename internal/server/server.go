@@ -8,6 +8,7 @@ import (
 
 	"github.com/DominikKoniarz/some-tcp-server/internal/auth"
 	"github.com/DominikKoniarz/some-tcp-server/internal/connection"
+	"github.com/DominikKoniarz/some-tcp-server/internal/message"
 	"github.com/DominikKoniarz/some-tcp-server/internal/request"
 )
 
@@ -135,8 +136,17 @@ func (s *Server) handleConnection(conn *connection.Connection) {
 				break
 			}
 		} else {
-			// write request back to client
-			if _, err := (*conn.C).Write(parsedRequest.ToBytes()); err != nil {
+			var response string
+
+			err := message.MatchQuery(&parsedRequest.Data)
+			if err != nil {
+				response = err.Error()
+			} else {
+				response = "Query executed"
+			}
+
+			// write response back to client
+			if _, err := (*conn.C).Write([]byte(response)); err != nil {
 				s.Logger.Println("Error writing response:", err)
 				break
 			}
